@@ -1,0 +1,29 @@
+{
+  "name": "rumors-line-bot-log-parser",
+  "version": "0.0.1",
+  "description": "Parses the STDOUT logs emitted by rumors-line-bot",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cofacts/rumors-line-bot-log-parser.git"
+  },
+  "author": "MrOrz",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/cofacts/rumors-line-bot-log-parser/issues"
+  },
+  "homepage": "https://github.com/cofacts/rumors-line-bot-log-parser#readme",
+  "dependencies": {
+    "csv-stringify": "^3.1.1"
+  },
+  "devDependencies": {
+    "eslint": "^5.2.0",
+    "eslint-config-prettier": "^2.9.0",
+    "eslint-plugin-import": "^2.13.0",
+    "eslint-plugin-prettier": "^2.6.2",
+    "prettier": "^1.13.7"
+  }
+}
