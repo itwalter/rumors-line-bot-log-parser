@@ -1,4 +1,5 @@
 const fs = require('fs');
+const { Transform } = require('stream');
 const readline = require('readline');
 const crypto = require('crypto');
 
@@ -10,100 +11,101 @@ if (!process.argv[2]) {
   process.exit(1);
 }
 
+const fileContentToLines = new Transform({
+  transform(chunk, encoding, callback) {
+    chunk.split(/\r\n|\r|\n/).forEach(line => {
+      if (line) {
+        this.push(line);
+      }
+    });
+
+    callback();
+  },
+});
+
+const lineToConversationObj = new Transform({
+  readableObjectMode: true,
+  transform(line, encoding, callback) {
+    // Each chunk should be a line
+    // 112 <190>1 2018-07-16T17:32:16.082803+00:00 app web.1 - - ||LOG||<----------
+    if (!line.includes('||LOG||')) return callback();
+
+    const [, timestamp, content] = line.match(
+      /.*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{6}\+\d{2}:\d{2}) .+ \|\|LOG\|\|(.*)/
+    );
+
+    if (content === '<----------') {
+      if (this._buffer !== '') {
+        console.info(
+          `[INFO] Incomplete message detected at ${timestamp}; ignoring`
+        );
+      }
+      this._buffer = '';
+
+      return callback();
+    }
+
+    if (content === '---------->') {
+      let conversationObj;
+      try {
+        conversationObj = JSON.parse(this._buffer);
+      } catch (e) {
+        console.error(`[ERROR] Cannot parse message at ${timestamp}; skipping`);
+        return callback();
+      }
+
+      const { CONTEXT, INPUT, OUTPUT } = conversationObj;
+      const issuedAt = new Date(CONTEXT.issuedAt);
+
+      this.push({
+        timestamp: new Date(timestamp).toISOString(),
+        userIdsha256: sha256(INPUT.userId),
+        'input.message.text': collapseLines(
+          INPUT.message && INPUT.message.text
+        ),
+        'context.issuedAt': isNaN(+issuedAt) ? '' : issuedAt.toISOString(),
+        'context.data.searchedText': collapseLines(
+          CONTEXT.data && CONTEXT.data.searchedText
+        ),
+        'context.state': CONTEXT.state,
+        'output.context.state': OUTPUT.context.state,
+        'output.replies': collapseLines(
+          (OUTPUT.replies || [])
+            .map(({ text, altText }) => text || altText)
+            .join('↵')
+        ),
+      });
+
+      this._buffer = '';
+      return callback();
+    }
+
+    this._buffer += content;
+    callback();
+  },
+});
+
 const inputFilePath = process.argv[2];
 
-const rl = readline.createInterface({
-  input: fs.createReadStream(inputFilePath),
-  crlfDelay: Infinity,
-});
-
-const conversations = [];
-
-let buffer = '';
-rl.on('line', line => {
-  // 112 <190>1 2018-07-16T17:32:16.082803+00:00 app web.1 - - ||LOG||<----------
-  if (!line.includes('||LOG||')) return;
-
-  const [, timestamp, content] = line.match(
-    /.*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{6}\+\d{2}:\d{2}) .+ \|\|LOG\|\|(.*)/
-  );
-
-  if (content === '<----------') {
-    if (buffer !== '') {
-      console.info(
-        `[INFO] Incomplete message detected at ${timestamp}; ignoring`
-      );
-    }
-    buffer = '';
-    return;
-  }
-
-  if (content === '---------->') {
-    let conversationObj;
-    try {
-      conversationObj = JSON.parse(buffer);
-    } catch (e) {
-      console.error(`[ERROR] Cannot parse message at ${timestamp}; skipping`);
-      return;
-    }
-
-    conversationObj._logTimestamp = timestamp;
-
-    conversations.push(conversationObj);
-
-    buffer = '';
-    return;
-  }
-
-  buffer += content;
-});
-
-rl.on('close', () => {
-  fs.writeFileSync(
-    `${inputFilePath}.out.json`,
-    JSON.stringify(conversations, null, '  ')
-  );
-
-  const csvHeaders = [
-    'timestamp',
-    'userIdsha256',
-    'input.message.text',
-    'context.issuedAt',
-    'context.data.searchedText',
-    'context.state',
-    'output.context.state',
-    'output.replies',
-  ];
-
-  csvStringify(
-    [
-      csvHeaders,
-      ...conversations.map(({ _logTimestamp, CONTEXT, INPUT, OUTPUT }) => {
-        const issuedAt = new Date(CONTEXT.issuedAt);
-        return [
-          new Date(_logTimestamp).toISOString(),
-          sha256(INPUT.userId),
-          collapseLines(INPUT.message && INPUT.message.text),
-          isNaN(+issuedAt) ? '' : issuedAt.toISOString(),
-          collapseLines(CONTEXT.data && CONTEXT.data.searchedText),
-          CONTEXT.state,
-          OUTPUT.context.state,
-          collapseLines(
-            (OUTPUT.replies || [])
-              .map(({ text, altText }) => text || altText)
-              .join('↵')
-          ),
-        ];
-      }),
-    ],
-    (err, output) => {
-      if (err) {
-        throw err;
-      }
-      fs.writeFileSync(`${inputFilePath}.out.csv`, output);
-    }
-  );
-});
+fs.createReadStream(inputFilePath)
+  .pipe(fileContentToLines)
+  .pipe(lineToConversationObj)
+  .pipe(
+    csvStringify({
+      header: true,
+      columns: [
+        'timestamp',
+        'userIdsha256',
+        'input.message.text',
+        'context.issuedAt',
+        'context.data.searchedText',
+        'context.state',
+        'output.context.state',
+        'output.replies',
+      ],
+    })
+  )
+  .pipe(fs.writeFile(`${inputFilePath}.out.csv`));
 
 /**
  * @param {string} input
