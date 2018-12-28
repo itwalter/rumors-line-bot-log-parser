@@ -10,7 +10,7 @@ if (!process.argv[2]) {
   process.exit(1);
 }
 
-const filePathToLines = new Transform({
+const filePathTofileNameLines = new Transform({
   objectMode: true,
   transform(fileName, encoding, callback) {
     const rl = readline.createInterface({
@@ -19,7 +19,7 @@ const filePathToLines = new Transform({
     });
 
     rl.on('line', line => {
-      this.push(line);
+      this.push({ fileName, line });
     });
 
     rl.on('close', () => callback());
@@ -28,7 +28,7 @@ const filePathToLines = new Transform({
 
 const herokuToLineTimestamp = new Transform({
   objectMode: true,
-  transform(line, encoding, callback) {
+  transform({ line }, encoding, callback) {
     // Each chunk should be a line
     // 112 <190>1 2018-07-16T17:32:16.082803+00:00 app web.1 - - ||LOG||<----------
     if (!line.includes('||LOG||')) return callback();
@@ -99,7 +99,7 @@ const lineTimestampToConversationObj = new Transform({
 
 const inputFilePath = process.argv[2];
 
-filePathToLines
+filePathTofileNameLines
   .pipe(herokuToLineTimestamp)
   .pipe(lineTimestampToConversationObj)
   .pipe(
@@ -119,7 +119,7 @@ filePathToLines
   )
   .pipe(fs.createWriteStream(`${inputFilePath}.out-stream.csv`));
 
-filePathToLines.write(inputFilePath);
+filePathTofileNameLines.write(inputFilePath);
 
 /**
  * @param {string} input
