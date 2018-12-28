@@ -4,6 +4,8 @@ const readline = require('readline');
 const crypto = require('crypto');
 const csvStringify = require('csv-stringify');
 
+const herokuMode = true;
+
 if (!process.argv[2]) {
   console.info('Please provide input filename.');
   console.info('Usage: node index.js <input file>');
@@ -26,10 +28,17 @@ const filePathTofileNameLines = new Transform({
   },
 });
 
-const herokuToLineTimestamp = new Transform({
+const filenameLineToLineTimestamp = new Transform({
   objectMode: true,
-  transform({ line }, encoding, callback) {
-    // Each chunk should be a line
+  transform({ line, fileName }, encoding, callback) {
+    if (!herokuMode) {
+      // line on S3:
+      // Pure content, no prefix.
+      this.push({ timestamp: fileName, line });
+      callback();
+    }
+
+    // line on Heroku:
     // 112 <190>1 2018-07-16T17:32:16.082803+00:00 app web.1 - - ||LOG||<----------
     if (!line.includes('||LOG||')) return callback();
 
@@ -100,7 +109,7 @@ const lineTimestampToConversationObj = new Transform({
 const inputFilePath = process.argv[2];
 
 filePathTofileNameLines
-  .pipe(herokuToLineTimestamp)
+  .pipe(filenameLineToLineTimestamp)
   .pipe(lineTimestampToConversationObj)
   .pipe(
     csvStringify({
