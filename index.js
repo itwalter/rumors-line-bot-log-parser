@@ -2,7 +2,6 @@ const fs = require('fs');
 const { Transform } = require('stream');
 const readline = require('readline');
 const crypto = require('crypto');
-
 const csvStringify = require('csv-stringify');
 
 if (!process.argv[2]) {
@@ -11,20 +10,24 @@ if (!process.argv[2]) {
   process.exit(1);
 }
 
-const fileContentToLines = new Transform({
-  transform(chunk, encoding, callback) {
-    chunk.split(/\r\n|\r|\n/).forEach(line => {
-      if (line) {
-        this.push(line);
-      }
+const filePathToLines = new Transform({
+  objectMode: true,
+  transform(fileName, encoding, callback) {
+    const rl = readline.createInterface({
+      input: fs.createReadStream(fileName),
+      crlfDelay: Infinity,
     });
 
-    callback();
+    rl.on('line', line => {
+      this.push(line);
+    });
+
+    rl.on('close', () => callback());
   },
 });
 
-const lineToConversationObj = new Transform({
-  readableObjectMode: true,
+const herokuToLineTimestamp = new Transform({
+  objectMode: true,
   transform(line, encoding, callback) {
     // Each chunk should be a line
     // 112 <190>1 2018-07-16T17:32:16.082803+00:00 app web.1 - - ||LOG||<----------
@@ -34,7 +37,15 @@ const lineToConversationObj = new Transform({
       /.*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{6}\+\d{2}:\d{2}) .+ \|\|LOG\|\|(.*)/
     );
 
-    if (content === '<----------') {
+    this.push({ line: content, timestamp });
+    callback();
+  },
+});
+
+const lineTimestampToConversationObj = new Transform({
+  objectMode: true,
+  transform({ line, timestamp }, encoding, callback) {
+    if (line === '<----------') {
       if (this._buffer !== '') {
         console.info(
           `[INFO] Incomplete message detected at ${timestamp}; ignoring`
@@ -45,12 +56,13 @@ const lineToConversationObj = new Transform({
       return callback();
     }
 
-    if (content === '---------->') {
+    if (line === '---------->') {
       let conversationObj;
       try {
         conversationObj = JSON.parse(this._buffer);
       } catch (e) {
         console.error(`[ERROR] Cannot parse message at ${timestamp}; skipping`);
+        this._buffer = '';
         return callback();
       }
 
@@ -80,16 +92,16 @@ const lineToConversationObj = new Transform({
       return callback();
     }
 
-    this._buffer += content;
+    this._buffer += line;
     callback();
   },
 });
 
 const inputFilePath = process.argv[2];
 
-fs.createReadStream(inputFilePath)
-  .pipe(fileContentToLines)
-  .pipe(lineToConversationObj)
+filePathToLines
+  .pipe(herokuToLineTimestamp)
+  .pipe(lineTimestampToConversationObj)
   .pipe(
     csvStringify({
       header: true,
@@ -105,7 +117,9 @@ fs.createReadStream(inputFilePath)
       ],
     })
   )
-  .pipe(fs.writeFile(`${inputFilePath}.out.csv`));
+  .pipe(fs.createWriteStream(`${inputFilePath}.out-stream.csv`));
+
+filePathToLines.write(inputFilePath);
 
 /**
  * @param {string} input
