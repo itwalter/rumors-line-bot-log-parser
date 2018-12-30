@@ -90,33 +90,36 @@ const lineTimestampToConversationObj = new Transform({
 
       const { CONTEXT, INPUT, OUTPUT } = conversationObj;
       const issuedAt = new Date(CONTEXT.issuedAt);
-
-      this.push({
-        timestamp: new Date(timestamp).toISOString(),
-        userIdsha256: sha256(INPUT.userId),
-        'input.message.text': collapseLines(
-          INPUT.message && INPUT.message.text
-        ),
-        'context.issuedAt': isNaN(+issuedAt) ? '' : issuedAt.toISOString(),
-        'context.data.searchedText': collapseLines(
-          CONTEXT.data && CONTEXT.data.searchedText
-        ),
-        'context.state': CONTEXT.state,
-        'context.data.selectedArticleId':
-          CONTEXT.data && CONTEXT.data.selectedArticleId,
-        'context.data.selectedReplyId':
-          CONTEXT.data && CONTEXT.data.selectedReplyId,
-        'output.context.state': OUTPUT.context.state,
-        'output.context.data.selectedArticleId':
-          OUTPUT.context.data.selectedArticleId,
-        'output.context.data.selectedReplyId':
-          OUTPUT.context.data.selectedReplyId,
-        'output.replies': collapseLines(
-          (OUTPUT.replies || [])
-            .map(({ text, altText }) => text || altText)
-            .join('↵')
-        ),
-      });
+      try {
+        this.push({
+          timestamp: new Date(timestamp).toISOString(),
+          userIdsha256: sha256(INPUT.userId),
+          'input.message.text': collapseLines(
+            INPUT.message && INPUT.message.text
+          ),
+          'context.issuedAt': isNaN(+issuedAt) ? '' : issuedAt.toISOString(),
+          'context.data.searchedText': collapseLines(
+            CONTEXT.data && CONTEXT.data.searchedText
+          ),
+          'context.state': CONTEXT.state,
+          'context.data.selectedArticleId':
+            CONTEXT.data && CONTEXT.data.selectedArticleId,
+          'context.data.selectedReplyId':
+            CONTEXT.data && CONTEXT.data.selectedReplyId,
+          'output.context.state': OUTPUT.context.state,
+          'output.context.data.selectedArticleId':
+            OUTPUT.context.data.selectedArticleId,
+          'output.context.data.selectedReplyId':
+            OUTPUT.context.data.selectedReplyId,
+          'output.replies': collapseLines(
+            (OUTPUT.replies || [])
+              .map(({ text, altText }) => text || altText)
+              .join('↵')
+          ),
+        });
+      } catch (e) {
+        console.error(`[ERROR] message at ${timestamp} contains error`, e);
+      }
 
       this._buffer = '';
       return callback();
