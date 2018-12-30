@@ -4,13 +4,18 @@ const readline = require('readline');
 const crypto = require('crypto');
 const csvStringify = require('csv-stringify');
 
-const herokuMode = true;
+const glob = require('glob');
 
-if (!process.argv[2]) {
+const HEROKU_MODE = process.env.HEROKU || false;
+
+if (!process.argv[3]) {
   console.info('Please provide input filename.');
-  console.info('Usage: node index.js <input file>');
+  console.info('Usage: node index.js <input file glob> <output file>');
   process.exit(1);
 }
+
+const inputFiles = glob.sync(process.argv[2]);
+const outputFilePath = process.argv[3];
 
 const filePathTofileNameLines = new Transform({
   objectMode: true,
@@ -31,11 +36,19 @@ const filePathTofileNameLines = new Transform({
 const filenameLineToLineTimestamp = new Transform({
   objectMode: true,
   transform({ line, fileName }, encoding, callback) {
-    if (!herokuMode) {
+    if (!HEROKU_MODE) {
       // line on S3:
       // Pure content, no prefix.
-      this.push({ timestamp: fileName, line });
-      callback();
+      // file directory structure: 201709/01/05/0308.70025261277880.log
+      const [, year, month, day, hour, min, second] = fileName.match(
+        /(\d{4})(\d{2})\/(\d{2})\/(\d{2})\/(\d{2})(\d{2})\.\d+\.log$/
+      );
+
+      this.push({
+        timestamp: `${year}-${month}-${day}T${hour}:${min}:${second}Z`,
+        line,
+      });
+      return callback();
     }
 
     // line on Heroku:
@@ -106,8 +119,6 @@ const lineTimestampToConversationObj = new Transform({
   },
 });
 
-const inputFilePath = process.argv[2];
-
 filePathTofileNameLines
   .pipe(filenameLineToLineTimestamp)
   .pipe(lineTimestampToConversationObj)
@@ -126,9 +137,14 @@ filePathTofileNameLines
       ],
     })
   )
-  .pipe(fs.createWriteStream(`${inputFilePath}.out-stream.csv`));
+  .pipe(fs.createWriteStream(outputFilePath));
 
-filePathTofileNameLines.write(inputFilePath);
+// eslint-disable-next-line no-console
+console.log(`Processing ${inputFiles.length} files to ${outputFilePath}...`);
+
+inputFiles.forEach(filePath => {
+  filePathTofileNameLines.write(filePath);
+});
 
 /**
  * @param {string} input
