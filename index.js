@@ -102,7 +102,15 @@ const lineTimestampToConversationObj = new Transform({
           CONTEXT.data && CONTEXT.data.searchedText
         ),
         'context.state': CONTEXT.state,
+        'context.data.selectedArticleId':
+          CONTEXT.data && CONTEXT.data.selectedArticleId,
+        'context.data.selectedReplyId':
+          CONTEXT.data && CONTEXT.data.selectedReplyId,
         'output.context.state': OUTPUT.context.state,
+        'output.context.data.selectedArticleId':
+          OUTPUT.context.data.selectedArticleId,
+        'output.context.data.selectedReplyId':
+          OUTPUT.context.data.selectedReplyId,
         'output.replies': collapseLines(
           (OUTPUT.replies || [])
             .map(({ text, altText }) => text || altText)
@@ -119,20 +127,40 @@ const lineTimestampToConversationObj = new Transform({
   },
 });
 
+const conversationObjFilter = new Transform({
+  objectMode: true,
+  transform(conversationObj, encoding, callback) {
+    // on context.data.searchArticleId change, which means an article is selected
+    // either automatically or manually.
+    //
+    const canOutput =
+      conversationObj['output.context.data.selectedArticleId'] &&
+      conversationObj['context.data.selectedArticleId'] !==
+        conversationObj['output.context.data.selectedArticleId'];
+
+    if (canOutput) this.push(conversationObj);
+
+    callback();
+  },
+});
+
 filePathTofileNameLines
   .pipe(filenameLineToLineTimestamp)
   .pipe(lineTimestampToConversationObj)
+  .pipe(conversationObjFilter)
   .pipe(
     csvStringify({
       header: true,
       columns: [
         'timestamp',
         'userIdsha256',
-        'input.message.text',
-        'context.issuedAt',
-        'context.data.searchedText',
-        'context.state',
+        // 'input.message.text',
+        // 'context.issuedAt',
+        // 'context.data.searchedText',
+        // 'context.state',
         'output.context.state',
+        // 'context.data.selectedArticleId',
+        'output.context.data.selectedArticleId',
         'output.replies',
       ],
     })
